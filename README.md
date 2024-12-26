@@ -82,7 +82,7 @@ git push origin feature-branch-name
 ---
 
 ## Citation
-Please read and cite the following papers if you use this software:
+Please cite the following repo if you use:
 
 ```latex
 @misc{Gomes2024,
@@ -91,7 +91,7 @@ Please read and cite the following papers if you use this software:
   year = {2024},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/diegovianagomes/video_evaluation}}
+  howpublished = {\url{https://github.com/diegovianagomes/Video-Evaluation}}
 }
 ```
 
