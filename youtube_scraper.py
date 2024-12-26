@@ -1,14 +1,16 @@
 import os
 from datetime import datetime, timedelta
+
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
+
 from supabase import create_client, Client
 
 
 
-def get_YT(api_key: str):
+def get_youtube_service(api_key: str):
     """
     Returns an instance of the YouTube Data API service.
     """
@@ -25,7 +27,6 @@ def search_videos(youtube, query: str, days: int = 7, max_results: int = 50):
     next_page_token = None
 
     while total_results < max_results:
-
         response = (
             youtube.search()
             .list(
@@ -37,13 +38,14 @@ def search_videos(youtube, query: str, days: int = 7, max_results: int = 50):
                 videoDuration="long",
                 videoDefinition="high",
                 order="relevance",
-                pageToken=next_page_token
+                pageToken=next_page_token,
             )
             .execute()
         )
 
         for item in response.get("items", []):
-            if video_id := item.get("id", {}).get("videoId"):
+            if "id" in item and "videoId" in item["id"]:
+                video_id = item["id"]["videoId"]
                 video_response = (
                     youtube.videos()
                     .list(part="snippet,statistics,contentDetails", id=video_id)
@@ -64,6 +66,7 @@ def search_videos(youtube, query: str, days: int = 7, max_results: int = 50):
         total_results += len(response.get("items", []))
         next_page_token = response.get("nextPageToken")
 
+        # Stop if there are no more pages
         if not next_page_token:
             break
 
@@ -76,27 +79,29 @@ def evaluate_video(title: str, description: str, channel: str, gemini_key: str):
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={gemini_key}"
     headers = {"Content-Type": "application/json"}
-    text_content = (
-        f"Title: {title}\nDescription: {description}\nChannel: {channel}\n"
-        "Evaluate the video’s quality and teaching methodology, focusing on the didactics used "
-        "for presenting and explaining algorithms and data structures. Was the content clear and engaging, "
-        "or did it lead to confusion? Provide a detailed evaluation based on the implementation and learning "
-        "of the following key topics:\n"
-        "1. Arrays\n"
-        "2. Linked Lists\n"
-        "3. Stacks\n"
-        "4. Trees\n"
-        "5. Graphs\n"
-        "6. Asymptotic Analysis\n"
-        "For each topic, assess whether it was included in the video, how it was implemented, and how effectively "
-        "it was taught. Highlight any strengths or areas for improvement in making these concepts understandable "
-        "and applicable for learners."
-    )
-
     payload = {
         "contents": [
             {
-                "text": text_content
+                "parts": [
+                    {
+                        "text": (
+                            f"Title: {title}\nDescription: {description}\nChannel: {channel}\n"
+                            "Evaluate the video’s quality and teaching methodology, focusing on the didactics used "
+                            "for presenting and explaining algorithms and data structures. Was the content clear and engaging, "
+                            "or did it lead to confusion? Provide a detailed evaluation based on the implementation and learning "
+                            "of the following key topics:\n"
+                            "1. Arrays\n"
+                            "2. Linked Lists\n"
+                            "3. Stacks\n"
+                            "4. Trees\n"
+                            "5. Graphs\n"
+                            "6. Asymptotic Analysis\n"
+                            "For each topic, assess whether it was included in the video, how it was implemented, and how effectively "
+                            "it was taught. Highlight any strengths or areas for improvement in making these concepts understandable "
+                            "and applicable for learners."
+                        )
+                    }
+                ]
             }
         ]
     }
@@ -104,21 +109,19 @@ def evaluate_video(title: str, description: str, channel: str, gemini_key: str):
     response = requests.post(url, headers=headers, json=payload)
     
     if response.status_code == 200:
+        # Extrair o texto relevante da resposta
         try:
             analysis = response.json()
             text = analysis["candidates"][0]["content"]["parts"][0]["text"]
-            return text 
+            return text  # Retorna apenas o texto relevante
         except (KeyError, IndexError):
             return "Erro ao processar a análise do vídeo."
     else:
         return f"Erro na requisição: {response.status_code}"
-    
-    """
     response = requests.post(url, headers=headers, json=payload)
     if response.status_code == 200:
         return response.json()
     return {"error": response.text}
-    """
 
 def file_in_use(file_name):
     """
@@ -130,7 +133,7 @@ def file_in_use(file_name):
     except IOError:
         return True
 
-def save_excel(data, file_name: str = "youtube_videos_evaluated.xlsx"):
+def save_results_to_excel(data, file_name: str = "youtube_videos_evaluated.xlsx"):
     """
     Saves data in an Excel file.
     """
@@ -142,13 +145,13 @@ def save_excel(data, file_name: str = "youtube_videos_evaluated.xlsx"):
     pd.DataFrame(data).to_excel(file_name, index=False)
     print(f"Data saved in the file: {file_name}")
 
-def extract_videoId(link: str):
+def extract_video_id(link: str):
     """
     Extracts the videoId from the YouTube link.
     """
     return link.split("v=")[-1]
 
-def already_saved(supabase, video_id: str):
+def is_video_in_database(supabase, video_id: str):
     """
     Checks if a video is already in the database based on its videoId.
     """
@@ -157,13 +160,13 @@ def already_saved(supabase, video_id: str):
 
 def save_database(data, supabase):
     """
-    Saves video data in the Database 'videos' table.
+    Saves video data in the Supabase 'videos' table.
     """
     for item in data:
-        video_id = extract_videoId(item["Link"])
+        video_id = extract_video_id(item["Link"])
 
-        if already_saved(supabase, video_id):
-            print(f"Video '{item['Title']}' is already in the database. Ignoring...")
+        if is_video_in_database(supabase, video_id):
+            print(f"Video '{item['Title']}' já está no banco de dados. Ignorando...")
             continue
         response = supabase.table("videos").insert({
             "title": item["Title"],
@@ -179,22 +182,24 @@ def save_database(data, supabase):
             print(f"Failed to save video '{item['Title']}': {response.data}")
 
 
-def load_config():
+
+def main():
+    """
+    Main function for searching and evaluating videos.
+    """
     load_dotenv()
-    return {
-        "youtube_api_key": os.getenv("YOUTUBE_API_KEY"),
-        "gemini_key": os.getenv("GEMINI_API_KEY"),
-        "supabase_url": os.getenv("SUPABASE_URL"),
-        "supabase_key": os.getenv("SUPABASE_KEY"),
-    }
+    youtube_api_key = os.getenv("YOUTUBE_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY")
 
-def setup_supabase(url, key):
-    return create_client(url, key)
+    url: str = os.environ.get("SUPABASE_URL")
+    key: str = os.environ.get("SUPABASE_KEY")
+    supabase: Client = create_client(url, key)
 
-def fetch_videos(youtube_service, query):
-    return search_videos(youtube_service, query, days=5, max_results=100)
+    youtube_service = get_youtube_service(youtube_api_key)
+    query = "Algorithm+Advent of Code+Python+2024"  
+    videos = search_videos(youtube_service, query, days=7, max_results=10)
 
-def evaluate_videos(videos, gemini_key):
+    results_with_analysis = []
     for video in videos:
         print(f"Evaluating: {video['Title']}")
         analysis = evaluate_video(
@@ -204,19 +209,11 @@ def evaluate_videos(videos, gemini_key):
             gemini_key=gemini_key,
         )
         video["Qualitative analysis"] = analysis
-    return videos
+        results_with_analysis.append(video)
 
-def main():
-    config = load_config()
-    supabase = setup_supabase(config["supabase_url"], config["supabase_key"])
-    youtube_service = get_YT(config["youtube_api_key"])
-    query = "Algorithm+Advent of Code+Python+2024"
+    save_results_to_excel(results_with_analysis)
+    save_database(videos, supabase)
 
-    videos = fetch_videos(youtube_service, query)
-    results_with_analysis = evaluate_videos(videos, config["gemini_key"])
-
-    save_excel(results_with_analysis)
-    save_database(results_with_analysis, supabase)
 
 if __name__ == "__main__":
     main()
