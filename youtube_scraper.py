@@ -8,6 +8,8 @@ from googleapiclient.discovery import build
 
 from supabase import create_client, Client
 
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 
 def get_youtube_service(api_key: str):
@@ -71,6 +73,36 @@ def search_videos(youtube, query: str, days: int = 7, max_results: int = 50):
             break
 
     return results
+
+
+def fetch_transcript(video_id):
+    """
+    Fetches the transcript of a YouTube video using the YouTubeTranscriptApi.
+    """
+    try:
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Concatenate transcript into a single string
+        return " ".join([entry["text"] for entry in transcript_list])
+    except Exception as e:
+        print(f"Failed to fetch transcript for video {video_id}: {str(e)}")
+        return None
+
+def save_transcripts(data, supabase):
+    """
+    Fetches and saves transcripts for each video in the database.
+    """
+    for item in data:
+        video_id = extract_video_id(item["Link"])
+        transcript = fetch_transcript(video_id)
+        if transcript:
+            response = supabase.table("videos").update({
+                "transcript": transcript
+            }).eq("link", item["Link"]).execute()
+
+            if response.data:
+                print(f"Transcript for video '{item['Title']}' saved successfully.")
+            else:
+                print(f"Failed to save transcript for video '{item['Title']}': {response.data}")
 
 
 def evaluate_video(title: str, description: str, channel: str, gemini_key: str):
@@ -199,6 +231,8 @@ def main():
     query = "Algorithm+Advent of Code+Python+2024"  
     videos = search_videos(youtube_service, query, days=7, max_results=10)
 
+
+
     results_with_analysis = []
     for video in videos:
         print(f"Evaluating: {video['Title']}")
@@ -213,6 +247,8 @@ def main():
 
     save_results_to_excel(results_with_analysis)
     save_database(videos, supabase)
+
+    save_transcripts(videos, supabase)
 
 
 if __name__ == "__main__":
