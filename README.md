@@ -82,7 +82,7 @@ git push origin feature-branch-name
 ---
 
 ## Citation
-Please read and cite the following papers if you use this software:
+Please cite the following repo if you use:
 
 ```latex
 @misc{Gomes2024,
